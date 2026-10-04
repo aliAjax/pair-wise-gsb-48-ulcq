@@ -10,7 +10,7 @@ from src.service import Service
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_DB = BASE_DIR / "securities-settlement.db"
+DEFAULT_DB = BASE_DIR / "netting-batches.db"
 DEFAULT_PORT = 8324
 
 

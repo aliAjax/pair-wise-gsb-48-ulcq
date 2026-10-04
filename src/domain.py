@@ -1,6 +1,8 @@
 """领域基础类型与输入校验。"""
+import re
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from datetime import datetime
+from typing import Any, Dict, List, Pattern
 
 
 class DomainError(Exception):
@@ -23,6 +25,11 @@ class Conflict(DomainError):
     code = "conflict"
 
 
+class SettlementBlocked(Conflict):
+    status = 409
+    code = "settlement_blocked"
+
+
 class PermissionDenied(DomainError):
     status = 403
     code = "permission_denied"
@@ -35,19 +42,15 @@ class Actor:
     organization: str = ""
 
 
+ISO_DATE_RE: Pattern[str] = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+ACCOUNT_RE: Pattern[str] = re.compile(r"^[A-Za-z0-9_-]{2,32}$")
+BATCH_NO_RE: Pattern[str] = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+
+
 def text(data: Dict[str, Any], key: str) -> str:
     value = data.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ValidationError("%s不能为空" % key)
-    return value.strip()
-
-
-def optional_text(data: Dict[str, Any], key: str, default: str = "") -> str:
-    value = data.get(key, default)
-    if value is None:
-        return default
-    if not isinstance(value, str):
-        raise ValidationError("%s必须是文本" % key)
     return value.strip()
 
 
@@ -81,17 +84,17 @@ def choice(data: Dict[str, Any], key: str, allowed: List[str]) -> str:
     return value
 
 
-def boolean(data: Dict[str, Any], key: str, default: bool = False) -> bool:
-    value = data.get(key, default)
-    if not isinstance(value, bool):
-        raise ValidationError("%s必须是布尔值" % key)
+def pattern(data: Dict[str, Any], key: str, regex: Pattern[str], label: str = "") -> str:
+    value = text(data, key)
+    if not regex.match(value):
+        raise ValidationError("%s格式无效%s" % (key, "，应为" + label if label else ""))
     return value
 
 
-def text_list(data: Dict[str, Any], key: str, minimum: int = 0) -> List[str]:
-    value = data.get(key, [])
-    if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
-        raise ValidationError("%s必须是文本列表" % key)
-    if len(value) < minimum:
-        raise ValidationError("%s至少需要%s项" % (key, minimum))
-    return [item.strip() for item in value]
+def iso_date(data: Dict[str, Any], key: str) -> str:
+    value = pattern(data, key, ISO_DATE_RE, "YYYY-MM-DD")
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValidationError("%s不是有效日期" % key) from exc
+    return value
