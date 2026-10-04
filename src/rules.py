@@ -1,11 +1,12 @@
 """证券结算与企业行动处理领域规则与状态转换。"""
 from typing import Any, Dict, Iterable, Tuple
 
-from .domain import Actor, Conflict, ValidationError, boolean, choice, integer, number, text, text_list
+from .domain import Actor, Conflict, ValidationError, boolean, choice, integer, number, optional_text, text, text_list
 
 
 INITIAL_STATE = "captured"
 CREATE_ROLES = {'trader'}
+EXTRA_ROLES = {'custodian'}
 ACTION_ROLES = {'apply_corporate': {'corporate_actions'}, 'approve': {'settlement_officer'}, 'settle': {'settlement_officer'}, 'fail': {'settlement_officer'}, 'reverse': {'corporate_actions', 'settlement_officer'}}
 TRANSITIONS = {'apply_corporate': {'captured': 'adjusted'}, 'approve': {'captured': 'approved', 'adjusted': 'approved'}, 'settle': {'approved': 'settled'}, 'fail': {'approved': 'failed'}, 'reverse': {'settled': 'reversed', 'failed': 'reversed'}}
 
@@ -14,7 +15,7 @@ class DomainRules:
     INITIAL_STATE = INITIAL_STATE
 
     def known_role(self, role: str) -> bool:
-        all_roles = set(CREATE_ROLES)
+        all_roles = set(CREATE_ROLES) | set(EXTRA_ROLES)
         for roles in ACTION_ROLES.values():
             all_roles.update(roles)
         return role == "admin" or role in all_roles
@@ -28,6 +29,7 @@ class DomainRules:
     def validate_create(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         p = dict(payload)
         text(p, "instrument")
+        p["account"] = optional_text(p, "account", "DEFAULT")
         choice(p, "side", ["buy", "sell"])
         integer(p, "quantity", 1)
         number(p, "price", 0.01)

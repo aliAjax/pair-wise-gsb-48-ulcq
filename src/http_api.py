@@ -12,6 +12,9 @@ from .domain import Actor, DomainError, PermissionDenied, ValidationError
 RECORD_RE = re.compile(r"^/api/records/(\d+)$")
 ACTION_RE = re.compile(r"^/api/records/(\d+)/actions/([a-z_]+)$")
 AUDIT_RE = re.compile(r"^/api/records/(\d+)/audit$")
+BATCH_RE = re.compile(r"^/api/batches/(\d+)$")
+BATCH_ACTION_RE = re.compile(r"^/api/batches/(\d+)/actions/([a-z_]+)$")
+BATCH_AUDIT_RE = re.compile(r"^/api/batches/(\d+)/audit$")
 
 
 def make_handler(service: Any, static_dir: Path):
@@ -87,6 +90,30 @@ def make_handler(service: Any, static_dir: Path):
                 if parsed.path == "/api/stats":
                     self._send(200, service.stats(self._actor()))
                     return
+                if parsed.path == "/api/batches":
+                    query = parse_qs(parsed.query)
+                    batches = service.list_batches(self._actor(), state=query.get("state", [None])[0], limit=int(query.get("limit", ["100"])[0]))
+                    self._send(200, {"items": batches})
+                    return
+                match = BATCH_RE.match(parsed.path)
+                if match:
+                    self._send(200, service.get_batch(self._actor(), int(match.group(1))))
+                    return
+                match = BATCH_AUDIT_RE.match(parsed.path)
+                if match:
+                    self._send(200, {"items": service.batch_timeline(self._actor(), int(match.group(1)))})
+                    return
+                if parsed.path == "/api/corporate-actions":
+                    self._send(200, service.list_corporate_actions(self._actor()))
+                    return
+                if parsed.path == "/api/receipts":
+                    query = parse_qs(parsed.query)
+                    self._send(200, {"items": service.list_receipts(self._actor(), batch_no=query.get("batch_no", [None])[0])})
+                    return
+                if parsed.path == "/api/discrepancies":
+                    query = parse_qs(parsed.query)
+                    self._send(200, {"items": service.list_discrepancies(self._actor(), state=query.get("state", [None])[0])})
+                    return
                 self._send(404, {"error": "not_found", "message": "路径不存在"})
             except Exception as exc:
                 self._handle_error(exc)
@@ -106,6 +133,31 @@ def make_handler(service: Any, static_dir: Path):
                         raise ValidationError("expected_version必须是整数")
                     record = service.act(self._actor(), int(match.group(1)), version, match.group(2), body.get("data", {}))
                     self._send(200, record)
+                    return
+                if parsed.path == "/api/batches":
+                    batch, created = service.create_batch(self._actor(), body)
+                    self._send(201 if created else 200, batch)
+                    return
+                match = BATCH_ACTION_RE.match(parsed.path)
+                if match:
+                    version = body.get("expected_version")
+                    if not isinstance(version, int):
+                        raise ValidationError("expected_version必须是整数")
+                    action = match.group(2)
+                    if action == "confirm":
+                        self._send(200, service.confirm_batch(self._actor(), int(match.group(1)), version))
+                        return
+                    if action == "resolve_discrepancy":
+                        self._send(200, service.resolve_batch_discrepancy(self._actor(), int(match.group(1)), version, body.get("data", {})))
+                        return
+                    self._send(404, {"error": "not_found", "message": "路径不存在"})
+                    return
+                if parsed.path == "/api/corporate-actions":
+                    self._send(200, service.upsert_corporate_action(self._actor(), body))
+                    return
+                if parsed.path == "/api/receipts":
+                    receipt, created = service.ingest_receipt(self._actor(), body)
+                    self._send(201 if created else 200, receipt)
                     return
                 self._send(404, {"error": "not_found", "message": "路径不存在"})
             except Exception as exc:
